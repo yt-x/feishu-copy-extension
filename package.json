@@ -1,0 +1,24 @@
+{
+  "name": "feishu-copy-extension",
+  "version": "0.1.0",
+  "description": "解除飞书文档复制限制的浏览器扩展",
+  "private": true,
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@wxt-dev/module-vue": "^1.0.2",
+    "typescript": "^5.7.3",
+    "wxt": "^0.19.29"
+  }
+}
