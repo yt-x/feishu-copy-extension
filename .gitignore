@@ -5,6 +5,9 @@ dist
 .wxt
 *.zip
 
+# 锁文件（不同平台差异大，统一用 npm install 生成）
+package-lock.json
+
 # OpenCode 工作目录
 .omo/
 
@@ -18,6 +21,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# 工具与 AI 代理工作目录
+.serena/
+.omo/
 
 # 环境变量
 .env

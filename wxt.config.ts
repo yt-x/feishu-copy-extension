@@ -12,16 +12,6 @@ export default defineConfig({
       '*://*.larksuite.com/*',
       '*://*.larkoffice.com/*',
     ],
-    web_accessible_resources: [
-      {
-        resources: ['inject.js'],
-        matches: [
-          '*://*.feishu.cn/*',
-          '*://*.larksuite.com/*',
-          '*://*.larkoffice.com/*',
-        ],
-      },
-    ],
   },
   runner: {
     disabled: true,

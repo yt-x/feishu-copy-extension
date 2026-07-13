@@ -4,33 +4,31 @@
 
 ## 一、项目构建与配置
 
-### 1.1 `tsconfig.json` 不能依赖 `.wxt/`
+### 1.1 `tsconfig.json` 继承 `.wxt/tsconfig.json`
 
-**踩坑**: 最初 `tsconfig.json` 直接 `extends: "./.wxt/tsconfig.json"`，但 `.wxt/` 是构建产物目录，清理后 TypeScript 配置会失效。
+**实现**: `tsconfig.json` 使用 `"extends": "./.wxt/tsconfig.json"` 继承 WXT 自动生成的类型配置（含 `chrome`、`defineContentScript` 等声明），无需额外安装 `@types/chrome`。
 
-**约束**: `tsconfig.json` 必须独立存在，包含完整的 `compilerOptions`。
+**约束**: 每次执行 `npm run build` 或 `wxt prepare` 后 `.wxt/` 会重新生成，TypeScript 检查前确保已执行过构建。
 
-**现状**: 已改为独立配置，包含 WXT 和 Vue 所需类型与路径别名。
-
----
-
-### 1.2 构建产物目录已清理
-
-**踩坑**: `node_modules/`、`.output/`、`.wxt/`、`package-lock.json` 都曾留在仓库根目录，体积大且无意义。
-
-**约束**: 根目录只保留源码和必要配置；依赖通过 `npm install` 重新安装。
-
-**现状**: 已删除上述目录/文件，`.gitignore` 已包含它们。
+**现状**: `.gitignore` 中已排除 `.wxt/`，CI 环境中先 `npm run build` 再 `npm run typecheck`。
 
 ---
 
-### 1.3 去除扩展图标
+### 1.2 `.vue` 类型声明需手动添加
 
-**踩坑**: 项目中没有自定义图标文件，但 WXT 构建时可能会自动生成默认图标。
+**踩坑**: `@wxt-dev/module-vue` 不自动提供 `.vue` 文件的 TypeScript 类型声明。
 
-**约束**: 如不需要图标，需在 `wxt.config.ts` 的 manifest 中显式设置 `icons: {}`。
+**约束**: 项目根目录须有 `env.d.ts`，包含 `declare module '*.vue'` 类型声明。
 
-**现状**: 已删除 `public/icons/`，并在 `wxt.config.ts` 中配置 `icons: {}`。
+**现状**: `env.d.ts` 已添加。
+
+---
+
+### 1.3 扩展图标已移除
+
+**决策**: 项目不使用自定义扩展图标。`wxt.config.ts` 中 `icons: {}`，浏览器将显示默认占位图标。
+
+**影响**: 上架 Chrome Web Store 时如需要可再添加。本地开发/加载不受影响。
 
 ---
 
@@ -94,9 +92,9 @@
 
 **约束**: 不要直接修改构建产物中的 `manifest.json`，所有 manifest 配置通过 `wxt.config.ts` 的 `manifest` 字段管理。
 
-### 4.2 技术文档归档到 `docs/`
+### 4.2 文档统一在项目根目录
 
-**约束**: `TECH.md`、`TEST.md` 等技术/知识文档统一放在 `docs/` 目录，根目录只保留必要文件（README、AGENTS、CONSTRAINTS、TODO、配置、源码入口）。
+**约束**: `TECH.md`、`TEST.md` 等文档放在项目根目录，不在 `docs/` 子目录。根目录文件：README（用户）、AGENTS（AI 代理）、CONSTRAINTS（约束）、TODO（事项）、TECH（技术架构）、TEST（测试方案）。
 
 ---
 
