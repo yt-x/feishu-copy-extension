@@ -13,10 +13,19 @@
 
 ## 快速开始
 
+### 直接下载（推荐）
+
+前往 [Releases](https://github.com/yt-x/feishu-copy-extension/releases) 页面下载最新版本的 zip 文件，解压后：
+
+1. 打开 Chrome，访问 `chrome://extensions/`
+2. 开启右上角「开发者模式」
+3. 点击「加载已解压的扩展程序」
+4. 选择解压后的目录
+
 ### 从源码构建
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/yt-x/feishu-copy-extension.git
 cd feishu-copy-extension
 npm install
 npm run build
