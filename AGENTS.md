@@ -59,7 +59,7 @@ feishu-copy-extension/
 ```bash
 npm install          # 安装依赖
 npm run dev          # 开发模式（热重载）
-npm run build        # 生产构建 → .output/chrome-mv3/
+npm run build        # 生产构建，输出到 .output/chrome-mv3/
 npm run typecheck    # TypeScript 类型检查
 npm run zip          # 打包 zip（上架用）
 npm run build:firefox  # Firefox 构建
@@ -94,8 +94,8 @@ npm run zip:firefox    # Firefox 打包
 
 | 考量 | ISOLATED world | MAIN world |
 |------|---------------|------------|
-| 访问页面原型链 | ❌ | ✅ |
-| 访问 chrome.storage | ✅ | ✅ |
+| 访问页面原型链 | 否 | 是 |
+| 访问 chrome.storage | 是 | 是 |
 | 安全性 | 高（与页面 JS 隔离） | 中（共享上下文） |
 | 适合任务 | CSS 注入、DOM 监听 | XHR/Fetch/Event 原型 hook |
 
@@ -104,8 +104,8 @@ Chrome 102+ 支持 `world: "MAIN"` 参数，WXT 通过 `defineContentScript({ wo
 ### 为什么不直接拦截所有 copy 事件？
 
 飞书的表格/富文本复制依赖其自身的 `copy` 事件处理器写入 HTML 剪贴板（如复制表格到 Excel 保留格式）。如果在事件层面粗暴拦截，会丢失富文本格式。当前策略是：
-   - Layer 1/2 成功 → 权限改写使飞书原生 handler 正常工作（带格式）
-   - Layer 1/2 失败 → Layer 4 事件兜底保证纯文本复制可用
+   - Layer 1/2 成功: 权限改写使飞书原生 handler 正常工作（带格式）
+   - Layer 1/2 失败: Layer 4 事件兜底保证纯文本复制可用
 
 ## 参考文档
 
