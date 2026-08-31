@@ -6,11 +6,14 @@
 
 飞书复制助手是一个 Chrome 浏览器扩展，用于解除飞书文档（`*.feishu.cn` 等域名）的复制、右键、文本选择限制。项目基于 WXT 框架和 Vue 3 + TypeScript 构建，采用 Manifest V3。
 
-核心策略为**四层复制解禁**：
-1. **XHR 权限响应改写** — 拦截 XMLHttpRequest 权限 API
+核心策略为**五层解禁**（2026-08-31 实测修订）：
+1. **XHR 权限响应改写** — 拦截 XMLHttpRequest 权限 API（configReady 竞态门控）
 2. **Fetch 权限响应改写** — 拦截 fetch 权限 API（安全版，仅 JSON + 权限端点）
-3. **Event.prototype.preventDefault hook** — 放行右键菜单
-4. **copy/cut 事件级兜底** — 捕获阶段 stopImmediatePropagation + 手动 Selection→Clipboard
+3. **Event.prototype.preventDefault hook** — 放行右键菜单（可热切换）
+4. **copy/cut 事件接管** — window 捕获缴械事件（preventDefault/stop* 无效化）→ 浏览器原生带格式复制 + 纯文本预填 + 原型方法掐断传播（消除 toast）；表格跨单元格选区从 `.selected-mask` overlay 重建 table HTML
+5. **keydown 缴械** — 放行 Ctrl+S 另存为 / Ctrl+P 打印
+
+配置经 `window.postMessage` 从 ISOLATED world 桥接到 MAIN world（MAIN world 无 chrome.storage 访问权）。
 
 ## 技术栈
 
@@ -45,12 +48,17 @@ feishu-copy-extension/
 ├── src/                    # 源码
 │   ├── hooks/
 │   │   ├── xhr-permission.ts   # XHR + Fetch 权限响应改写
-│   │   └── prevent-default.ts  # Event.prototype hook
+│   │   ├── prevent-default.ts  # Event.prototype hook
+│   │   └── main-state.ts       # MAIN world 运行时状态 + 桥接协议
 │   ├── styles/
 │   │   └── inject-css.ts       # CSS 注入引擎
 │   └── utils/
 │       ├── logger.ts           # 调试日志控制
-│       └── storage.ts          # chrome.storage 封装
+│       ├── storage.ts          # chrome.storage 封装
+│       ├── markdown.ts         # DOM→Markdown 转换器
+│       └── toast.ts            # 页面轻提示
+├── scripts/
+│   └── regression.ps1          # 自动化回归（OpenCLI，13 项断言）
 └── public/                 # 静态资源目录（当前为空，无自定义图标）
 ```
 
@@ -71,8 +79,9 @@ npm run zip:firefox    # Firefox 打包
 1. **TypeScript**: 严格模式。禁止 `as any`（可用 `as unknown as Type` 代替）、`@ts-ignore`、`@ts-expect-error`。
 2. **Manifest**: 通过 `wxt.config.ts` 配置，不要直接编辑生成的 `manifest.json`。
 3. **Content Scripts**: 项目使用两个 content script，运行在不同 JavaScript world：
-   - `content.ts` → **ISOLATED world** — 负责 CSS 注入（user-select 覆盖、水印移除、拖拽解除）、持续加固（MutationObserver + rAF）、Pop 面板通信
-   - `main-world.content.ts` → **MAIN world** — 负责 XHR/Fetch 权限改写、preventDefault hook、copy/cut 事件兜底拦截。必须运行在 MAIN world 才能访问 `Event.prototype`、`XMLHttpRequest.prototype`
+   - `content.ts` → **ISOLATED world** — 负责 CSS 注入（user-select 覆盖、水印移除、拖拽解除）、持续加固（MutationObserver + rAF）、配置桥接发送、Markdown 整篇导出、Popup 通信
+   - `main-world.content.ts` → **MAIN world** — 负责 XHR/Fetch 权限改写、preventDefault hook、copy/cut 事件接管、keydown 缴械。必须运行在 MAIN world 才能访问 `Event.prototype`、`XMLHttpRequest.prototype`；**无 chrome.storage 访问权**，配置由 ISOLATED world 经 postMessage 桥接（`src/hooks/main-state.ts`）
+4. **Background**: `entrypoints/background.ts` 必须使用 `defineBackground({ main() {...} })`，导出普通对象会导致 SW 注册失败（见 CONSTRAINTS.md 1.3）
 4. **样式**: CSS 注入逻辑统一在 `src/styles/inject-css.ts`，通过 `injectStyle(id, css)` 注入，通过 `removeStyle(id)` 移除。
 5. **存储**: 配置持久化通过 `src/utils/storage.ts` 封装 `chrome.storage.sync`。默认配置在 `DEFAULT_CONFIG` 常量中定义。
 6. **日志**: 调试日志通过 `src/utils/logger.ts` 控制，需在 Popup 中开启「调试日志」开关才会输出。生产环境禁止输出敏感信息。
@@ -95,17 +104,15 @@ npm run zip:firefox    # Firefox 打包
 | 考量 | ISOLATED world | MAIN world |
 |------|---------------|------------|
 | 访问页面原型链 | 否 | 是 |
-| 访问 chrome.storage | 是 | 是 |
+| 访问 chrome.storage | 是 | **否**（需 postMessage 桥接） |
 | 安全性 | 高（与页面 JS 隔离） | 中（共享上下文） |
-| 适合任务 | CSS 注入、DOM 监听 | XHR/Fetch/Event 原型 hook |
+| 适合任务 | CSS 注入、DOM 监听、存储读写 | XHR/Fetch/Event 原型 hook |
 
-Chrome 102+ 支持 `world: "MAIN"` 参数，WXT 通过 `defineContentScript({ world: 'MAIN' })` 声明。
+Chrome 111+ 支持 manifest content_scripts 的 `world: "MAIN"`，WXT 通过 `defineContentScript({ world: 'MAIN' })` 声明。
 
-### 为什么不直接拦截所有 copy 事件？
+### 为什么不依赖飞书原生 handler 做格式化复制？
 
-飞书的表格/富文本复制依赖其自身的 `copy` 事件处理器写入 HTML 剪贴板（如复制表格到 Excel 保留格式）。如果在事件层面粗暴拦截，会丢失富文本格式。当前策略是：
-   - Layer 1/2 成功: 权限改写使飞书原生 handler 正常工作（带格式）
-   - Layer 1/2 失败: Layer 4 事件兜底保证纯文本复制可用
+飞书禁复制的闸口不止 `actions/state`（wiki 还有 `perm/space` 等），且其 copy handler 在捕获阶段 `stopImmediatePropagation` 掐死事件。现行 Layer 4 改为：缴械事件 → **浏览器原生复制**提供 HTML 格式（表格/富文本天然保留），飞书 handler 被原型方法掐断不再执行，「无权限」toast 同步消除。飞书表格跨单元格选区（原生 Selection 被折叠）则从 `.selected-mask` overlay 重建。
 
 ## 参考文档
 
