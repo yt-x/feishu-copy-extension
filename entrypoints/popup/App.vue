@@ -249,7 +249,6 @@ async function resetToDefaults() {
         {{ exporting ? '导出中...' : '导出为 Markdown' }}
       </button>
       <div v-if="exportResult" class="export-result">{{ exportResult }}</div>
-      <div class="export-hint">选中内容后按 Ctrl+Shift+X 可复制为 Markdown</div>
     </div>
 
     <!-- 底部操作 -->

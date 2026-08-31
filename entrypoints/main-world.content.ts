@@ -22,8 +22,6 @@ import {
   type BridgedMainConfig,
 } from '../src/hooks/main-state';
 import { setDebug, log, warn } from '../src/utils/logger';
-import { selectionToMarkdown } from '../src/utils/markdown';
-import { showToast } from '../src/utils/toast';
 
 export default defineContentScript({
   matches: [
@@ -58,10 +56,7 @@ export default defineContentScript({
       // Layer 5: 恢复原生保存 — 放行 Ctrl+S 另存为 / Ctrl+P 打印
       installSaveShortcutBypass();
 
-      // Layer 6: 选区复制为 Markdown — Ctrl+Shift+X
-      installMarkdownCopyShortcut();
-
-      log('hooks已安装 (XHR + Fetch + preventDefault + copyFallback + saveShortcut + mdCopy)');
+      log('hooks已安装 (XHR + Fetch + preventDefault + copyFallback + saveShortcut)');
     } catch (e) {
       warn('MAIN world hook 安装异常', e);
     }
@@ -239,6 +234,9 @@ function installCopyEventFallback(): void {
     if (shouldPassthrough()) {
       neutralizeEvent(e);
       writeSelectionAsPlainText(e, false);
+      // 掐死飞书 handler（消除「无权限」toast），格式由浏览器原生复制提供。
+      // 注意：stopImmediatePropagation 已被 neutralizeEvent 无效化，需调原型方法
+      Event.prototype.stopImmediatePropagation.call(e);
       return;
     }
     e.stopImmediatePropagation();
@@ -257,6 +255,7 @@ function installCopyEventFallback(): void {
     if (shouldPassthrough()) {
       neutralizeEvent(e);
       writeSelectionAsPlainText(e, true);
+      Event.prototype.stopImmediatePropagation.call(e);
       return;
     }
     e.stopImmediatePropagation();
@@ -297,34 +296,6 @@ function installCopyEventFallback(): void {
   // document 冒泡阶段兜底
   document.addEventListener('copy', copyFallbackBubble, false);
   document.addEventListener('cut', cutFallbackBubble, false);
-}
-
-/**
- * 选区复制为 Markdown — Ctrl+Shift+X
- *
- * 不用 Ctrl+Shift+C：那是 Chrome DevTools 审查元素的浏览器级快捷键，页面收不到。
- */
-function installMarkdownCopyShortcut(): void {
-  window.addEventListener(
-    'keydown',
-    (e) => {
-      if (!mainState.bypassCopy) return;
-      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
-      if (e.key.toLowerCase() !== 'x') return;
-
-      const md = selectionToMarkdown();
-      if (!md.trim()) return;
-
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
-      navigator.clipboard.writeText(md).then(
-        () => showToast('已复制为 Markdown'),
-        () => showToast('Markdown 复制失败'),
-      );
-    },
-    true,
-  );
 }
 
 /**

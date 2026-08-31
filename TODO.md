@@ -10,7 +10,9 @@
 
 1. 复制粘贴全部解除（文本 + 富文本/表格格式保留）
 2. **图片可直接复制到剪贴板**（路线：先侦察飞书图片渲染方式 → ClipboardItem 写入，失败兜底为下载）
-3. **文档可保存到本地** = 整篇导出 Markdown 文件 + 选中内容复制为 Markdown（图片保留原始 URL）+ 恢复原生 Ctrl+S 另存为、Ctrl+P 打印为 PDF
+3. **文档可保存到本地** = 整篇导出 Markdown 文本 + 恢复原生 Ctrl+S 另存为、Ctrl+P 打印为 PDF
+   - ~~选中内容复制为 Markdown~~（2026-08-31 放弃：快捷键链路在飞书页面不可靠）
+   - ⚠️ 已知限制：保存物（HTML/打印/PDF/Markdown）中的**图片不可直接用**——飞书图片加密且 URL 鉴权，需单独解析图片、记住格式与位置再重构，降级为后续任务（见 P3）
 
 ## 当前状态（2026-08-31 源码审计结论）
 
@@ -39,10 +41,10 @@
 
 - [x] **P1-0 图片侦察**（前置）：正文图片为 `<img>`（blob: 或 drive-stream URL），`fetch(+credentials)` 均可获取 ✅ 2026-08-31
 - [x] **P1-1 图片复制到剪贴板**：✅ 2026-08-31 实测两条路径均通过 —— contextmenu 解禁后浏览器原生菜单的「复制图片」对正文图片和预览灯箱图片都有效（含 blob: src），「图片另存为」同理可用。无需自实现 ClipboardItem 链路；原生菜单失效的边角场景出现时再补
-- [ ] **P1-2 DOM→Markdown 转换器**：供 P1-3/P1-4 共用（参考 feishu-toolkit 的 htmlToMarkdown()）
-- [ ] **P1-3 整篇导出 Markdown**：Popup 增加「导出 Markdown」按钮，下载 .md 文件，图片保留原始 URL
-- [ ] **P1-4 选中复制为 Markdown**：Ctrl+Shift+C 将选区转为 Markdown 写入剪贴板
-- [ ] **P1-5 恢复原生保存**：keydown hook 放行 Ctrl+S / Cmd+S（另存为）与 Ctrl+P / Cmd+P（打印为 PDF）
+- [x] **P1-2 DOM→Markdown 转换器**：`src/utils/markdown.ts` ✅ 2026-08-31
+- [x] **P1-3 整篇导出 Markdown**：Popup 按钮 → 虚拟滚动逐屏收集（克隆快照防回收串位）→ 下载 .md ✅ 2026-08-31 实测文本导出通过
+- [x] **P1-4 选中复制为 Markdown**：❌ 放弃（2026-08-31）— Ctrl+Shift+X 链路在飞书页面不可靠，代码已移除；`selectionToMarkdown()` 保留在 markdown.ts 中供未来重启
+- [x] **P1-5 恢复原生保存**：keydown 缴械放行 Ctrl+S / Ctrl+P ✅ 2026-08-31（注：保存的 HTML/打印件中图片因加密不可见，见 P3 图片本地化）
 
 ### P1 — 原体验增强（目标口径外，保留）
 
@@ -59,6 +61,7 @@
 
 ### P3 — 未来
 
+- [ ] **图片本地化保存方案**：飞书图片加密 + URL 鉴权（blob:/drive-stream 需会话），导出的 HTML/PDF/Markdown 中图片不可直接访问。需实现：解析文档图片 → 逐个 fetch 解密/blob 数据 → 转 base64 内嵌或本地文件目录 → 按原格式与位置重构进保存物。工作量大，2026-08-31 决策暂缓
 - [ ] 配置导入/导出 JSON
 - [ ] 自定义站点白名单
 - [ ] 页面性能影响监控

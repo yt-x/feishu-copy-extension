@@ -75,7 +75,17 @@ function tableToMd(el: Element): string {
   return lines.join('\n');
 }
 
+function isTableBlock(el: Element): boolean {
+  return (
+    el.matches('.docx-table-block, .table-block, [data-block-type="table"]') ||
+    el.tagName === 'TABLE'
+  );
+}
+
 function blockToMd(el: Element): string {
+  // 表格块优先（其内部 text 块不应拆散，保持 table 结构）
+  if (isTableBlock(el)) return tableToMd(el);
+
   const type = el.getAttribute('data-block-type') || '';
 
   if (CONTAINER_TYPES.has(type)) {
@@ -188,5 +198,37 @@ export function selectionToMarkdown(): string {
   for (let i = 0; i < selection.rangeCount; i++) {
     wrapper.appendChild(selection.getRangeAt(i).cloneContents());
   }
-  return htmlToMarkdown(wrapper);
+  const md = htmlToMarkdown(wrapper);
+  if (md.trim()) return md;
+  // 单段内联选区：克隆结果只有文本节点/内联元素，没有块级结构
+  return (wrapper.textContent || '').trim();
+}
+
+/**
+ * 收集容器内的叶子内容块（跳过 page/grid 等容器与表格内部块）
+ * 供整篇导出的虚拟滚动收集使用
+ */
+export function collectVisibleContentBlocks(container: Element): Element[] {
+  const out: Element[] = [];
+  container.querySelectorAll('[data-block-type], .docx-table-block').forEach((el) => {
+    const type = el.getAttribute('data-block-type') || '';
+    if (CONTAINER_TYPES.has(type)) return;
+    // 表格内部的叶子块跳过（表格块整体转换）
+    const tableAncestor = el.closest('.docx-table-block');
+    if (tableAncestor && tableAncestor !== el) return;
+    out.push(el);
+  });
+  return out;
+}
+
+/**
+ * 一组块元素 → Markdown（用于整篇导出的跨屏收集结果）
+ */
+export function blocksToMarkdown(blocks: Element[]): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    const md = blockToMd(block);
+    if (md.trim()) parts.push(md);
+  }
+  return parts.join('\n\n');
 }

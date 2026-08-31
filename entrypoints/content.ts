@@ -14,7 +14,7 @@ import { defineContentScript } from 'wxt/sandbox';
 import { loadConfig, onConfigChanged, type FeishuConfig } from '../src/utils/storage';
 import { setDebug, log, error } from '../src/utils/logger';
 import { BRIDGE_SOURCE, toBridgedConfig } from '../src/hooks/main-state';
-import { docToMarkdown } from '../src/utils/markdown';
+import { findDocContainer, collectVisibleContentBlocks, blocksToMarkdown } from '../src/utils/markdown';
 import { showToast } from '../src/utils/toast';
 import {
   injectStyle,
@@ -96,27 +96,29 @@ export default defineContentScript({
         return true;
       }
       if (message.type === 'EXPORT_MARKDOWN') {
-        try {
-          const md = docToMarkdown();
-          if (!md.trim()) {
+        (async () => {
+          try {
+            const md = await collectFullDocumentMarkdown();
+            if (!md.trim()) {
+              sendResponse({ success: false });
+              return;
+            }
+            const title =
+              document.title.replace(/[ _-]*飞书云文档.*$/, '').trim() || 'document';
+            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = title + '.md';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast('Markdown 已导出');
+            sendResponse({ success: true, length: md.length });
+          } catch (e) {
+            error('Markdown 导出失败', e);
             sendResponse({ success: false });
-            return true;
           }
-          const title =
-            document.title.replace(/[ _-]*飞书云文档.*$/, '').trim() || 'document';
-          const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = title + '.md';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          showToast('Markdown 已导出');
-          sendResponse({ success: true, length: md.length });
-        } catch (e) {
-          error('Markdown 导出失败', e);
-          sendResponse({ success: false });
-        }
+        })();
         return true;
       }
     });
@@ -136,6 +138,66 @@ function syncConfigToMainWorld(cfg: FeishuConfig): void {
   } catch {
     // 静默降级
   }
+}
+
+/**
+ * 整篇文档 → Markdown（处理飞书虚拟滚动）
+ *
+ * 飞书只把可视区附近的块挂载到 DOM，直接转换只能拿到当前屏幕内容。
+ * 这里从顶部逐步滚动到底部，逐屏克隆内容块（克隆是快照，避免虚拟列表
+ * 回收复用同一元素导致内容串位），最后拼接转换并恢复滚动位置。
+ */
+async function collectFullDocumentMarkdown(): Promise<string> {
+  const container = findDocContainer();
+  if (!container) return '';
+
+  // 向上找滚动容器，找不到退化到 documentElement
+  let scroller: Element | null = container.parentElement;
+  while (scroller && scroller.scrollHeight <= scroller.clientHeight + 50) {
+    scroller = scroller.parentElement;
+  }
+  const scrollEl: HTMLElement =
+    (scroller as HTMLElement | null) || document.documentElement;
+
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  const blockKey = (el: Element): string => {
+    const id = el.getAttribute('data-block-id');
+    if (id) return id;
+    const text = (el.textContent || '').trim();
+    return (el.getAttribute('data-block-type') || el.className) + ':' + text.length + ':' + text.slice(0, 48);
+  };
+
+  const blocks = new Map<string, Element>();
+  const collect = (): void => {
+    for (const block of collectVisibleContentBlocks(container)) {
+      const key = blockKey(block);
+      if (!blocks.has(key)) {
+        blocks.set(key, block.cloneNode(true) as Element);
+      }
+    }
+  };
+
+  const originalTop = scrollEl.scrollTop;
+  try {
+    scrollEl.scrollTop = 0;
+    await sleep(400);
+
+    let lastTop = -1;
+    let guard = 0;
+    while (scrollEl.scrollTop !== lastTop && guard < 200) {
+      lastTop = scrollEl.scrollTop;
+      collect();
+      scrollEl.scrollTop = lastTop + scrollEl.clientHeight * 0.8;
+      await sleep(250);
+    }
+    collect();
+  } finally {
+    scrollEl.scrollTop = originalTop;
+  }
+
+  return blocksToMarkdown(Array.from(blocks.values()));
 }
 
 /**
