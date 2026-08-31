@@ -3,7 +3,11 @@
  * 拦截飞书的权限 API 响应，将 copy 等权限位置为 1（启用）
  *
  * 必须在 MAIN world 中运行，因为需要 hook XMLHttpRequest.prototype
+ * 配置在请求发生时从 mainState 实时读取（由 ISOLATED world 桥接）
  */
+
+import { mainState, configReady } from './main-state';
+import { log } from '../utils/logger';
 
 interface PermissionActions {
   copy?: number;
@@ -28,9 +32,7 @@ const PERMISSION_ENDPOINTS = [
 /**
  * 安装 XHR 响应改写 hook
  */
-export function installXHRHook(options: { bypassCopy?: boolean; forceExport?: boolean } = {}): void {
-  const { bypassCopy = true, forceExport = true } = options;
-
+export function installXHRHook(): void {
   const rawOpen = XMLHttpRequest.prototype.open;
 
   XMLHttpRequest.prototype.open = function (
@@ -52,55 +54,65 @@ export function installXHRHook(options: { bypassCopy?: boolean; forceExport?: bo
     this.addEventListener('readystatechange', function () {
       if (this.readyState !== 4) return;
 
-      try {
-        let rawResponse: string;
+      const xhr = this;
+      const rewrite = (): void => {
         try {
-          rawResponse = this.responseText;
-        } catch {
-          rawResponse = this.response as string;
-        }
+          let rawResponse: string;
+          try {
+            rawResponse = xhr.responseText;
+          } catch {
+            rawResponse = xhr.response as string;
+          }
 
-        if (!rawResponse) return;
+          if (!rawResponse) return;
 
-        const response: PermissionResponse = JSON.parse(rawResponse);
-        if (!response?.data?.actions) return;
+          const response: PermissionResponse = JSON.parse(rawResponse);
+          if (!response?.data?.actions) return;
 
-        let modified = false;
-        const actions = response.data.actions;
+          let modified = false;
+          const actions = response.data.actions;
 
-        // 启用复制
-        if (bypassCopy && actions.copy !== undefined && actions.copy !== 1) {
-          actions.copy = 1;
-          modified = true;
-        }
-
-        // 强制启用导出/下载/打印
-        if (forceExport) {
-          const exportKeys = ['download', 'export', 'print'];
-          for (const key of exportKeys) {
-            if (actions[key] !== undefined && actions[key] !== 1) {
-              actions[key] = 1;
+          // 启用复制 + 导出/下载/打印（随 bypassCopy 开关整体启停，实时读取）
+          if (mainState.bypassCopy) {
+            if (actions.copy !== undefined && actions.copy !== 1) {
+              actions.copy = 1;
               modified = true;
             }
-          }
-        }
 
-        if (modified) {
-          const modifiedJson = JSON.stringify(response);
-          Object.defineProperty(this, 'responseText', {
-            value: modifiedJson,
-            configurable: true,
-            writable: true,
-          });
-          Object.defineProperty(this, 'response', {
-            value: this.responseType === 'json' ? response : modifiedJson,
-            configurable: true,
-            writable: true,
-          });
-          console.log('%c[飞书复制助手]%c XHR权限已改写', 'color:#3370ff;font-weight:bold', '', actions);
+            const exportKeys = ['download', 'export', 'print'];
+            for (const key of exportKeys) {
+              if (actions[key] !== undefined && actions[key] !== 1) {
+                actions[key] = 1;
+                modified = true;
+              }
+            }
+          }
+
+          if (modified) {
+            const modifiedJson = JSON.stringify(response);
+            Object.defineProperty(xhr, 'responseText', {
+              value: modifiedJson,
+              configurable: true,
+              writable: true,
+            });
+            Object.defineProperty(xhr, 'response', {
+              value: xhr.responseType === 'json' ? response : modifiedJson,
+              configurable: true,
+              writable: true,
+            });
+            mainState.permissionRewritten = true;
+            log('XHR权限已改写', actions);
+          }
+        } catch {
+          // 解析失败静默忽略
         }
-      } catch (e) {
-        // 解析失败静默忽略
+      };
+
+      // 配置未就绪时挂起等待 — 避免刷新瞬间按默认值误改写
+      if (mainState.configReceived) {
+        rewrite();
+      } else {
+        configReady.then(rewrite);
       }
     });
 
@@ -117,9 +129,7 @@ export function installXHRHook(options: { bypassCopy?: boolean; forceExport?: bo
  * - 所有非权限请求 100% 透明透传
  * - 异常静默降级，不阻断飞书任何正常请求
  */
-export function installFetchHook(options: { bypassCopy?: boolean; forceExport?: boolean } = {}): void {
-  const { bypassCopy = true, forceExport = true } = options;
-
+export function installFetchHook(): void {
   // 在 document_start 时机缓存原生 fetch（飞书尚未覆盖）
   const rawFetch = window.fetch.bind(window);
 
@@ -160,6 +170,11 @@ export function installFetchHook(options: { bypassCopy?: boolean; forceExport?: 
     const isPermissionEndpoint = PERMISSION_ENDPOINTS.some((ep) => urlStr.includes(ep));
     if (!isPermissionEndpoint) return response;
 
+    // 配置未就绪时挂起等待 — 调用方 await 我们的 Promise，时序天然安全
+    if (!mainState.configReceived) {
+      await configReady;
+    }
+
     // Step 5: 安全解析 JSON 并修改权限位
     try {
       const cloned = response.clone();
@@ -173,12 +188,12 @@ export function installFetchHook(options: { bypassCopy?: boolean; forceExport?: 
       let modified = false;
       const actions = json.data.actions;
 
-      if (bypassCopy && typeof actions.copy === 'number' && actions.copy !== 1) {
-        actions.copy = 1;
-        modified = true;
-      }
+      if (mainState.bypassCopy) {
+        if (typeof actions.copy === 'number' && actions.copy !== 1) {
+          actions.copy = 1;
+          modified = true;
+        }
 
-      if (forceExport) {
         for (const key of ['download', 'export', 'print']) {
           if (typeof actions[key] === 'number' && actions[key] !== 1) {
             actions[key] = 1;
@@ -188,12 +203,8 @@ export function installFetchHook(options: { bypassCopy?: boolean; forceExport?: 
       }
 
       if (modified) {
-        console.log(
-          '%c[飞书复制助手]%c Fetch 权限已改写',
-          'color:#52c41a;font-weight:bold',
-          '',
-          JSON.stringify(actions),
-        );
+        mainState.permissionRewritten = true;
+        log('Fetch 权限已改写', JSON.stringify(actions));
         // 返回全新 Response，header 完整保留
         return new Response(JSON.stringify(json), {
           status: response.status,

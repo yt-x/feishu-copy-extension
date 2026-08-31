@@ -24,7 +24,11 @@
 
 ---
 
-### 1.3 扩展图标已移除
+### 1.3 background 必须使用 `defineBackground`（2026-08-31 踩坑）
+
+**约束**: `entrypoints/background.ts` 的默认导出必须是 `defineBackground({ main() {...} })`。若导出普通对象（`export default {}`），WXT 生成的包装器会调用 `undefined.main()` 抛 TypeError，Service Worker 注册失败（chrome://extensions 报 `Service worker registration failed. Status code: 15`），且 popup 的 `sendMessage` 永不返回（表现为 popup 永远「加载中」）。症状隐蔽：content scripts 完全正常，仅 SW 依赖路径失效。
+
+### 1.4 扩展图标已移除
 
 **决策**: 项目不使用自定义扩展图标。`wxt.config.ts` 中 `icons: {}`，浏览器将显示默认占位图标。
 
@@ -105,4 +109,14 @@
 | 复制为纯文本 | 事件兜底截断了飞书格式化 handler | 实现更精确的「保留表格格式」模式 |
 | 图片无法复制 | 未实现图片下载/复制逻辑 | 添加图片悬停下载按钮 |
 | 无 Markdown 导出 | 未实现 | 添加 Shift+Ctrl+C 复制为 Markdown |
-| 配置不共享到 MAIN world | ISOLATED/MAIN 隔离 | 通过 `postMessage` 或 `chrome.storage` 桥接 |
+| ~~配置不共享到 MAIN world~~ | 已通过 postMessage 桥接解决（2026-08-31） | — |
+
+### 5.1 飞书复制拦截的真实机制（2026-08-31 实测）
+
+**踩坑 1**: 飞书禁复制的闸口不止 `actions/state` 接口 —— wiki 文档还有 `space/api/wiki/v2/perm/space/`（`wiki_actions=can_copy_content`）等权限源。仅改写 actions/state 时，飞书 copy handler 仍会拦截并弹「无权限」toast。
+
+**踩坑 2**: 飞书 copy handler 在捕获阶段 `stopImmediatePropagation` 掐死事件，document 冒泡阶段的兜底监听器永远执行不到。
+
+**解法（Layer 4 现行架构）**: window 捕获阶段（传播最前端）将 copy 事件的 `preventDefault`/`stopPropagation`/`stopImmediatePropagation` 实例方法无效化 → 浏览器原生复制接管（自带 text/html，格式天然保留）+ 纯文本预填兜底 + document 冒泡检查补写。
+
+**踩坑 3**: 飞书表格跨单元格拖选会**折叠原生 selection**（anchor=BODY，内容为空），改用 overlay 渲染选中态 —— 每个选中 `<td>` 内插入 `<div class="selected-mask">`。此时原生复制无内容可拷。**解法**: copy handler 检测原生选区为空且存在 `.selected-mask` 时，按 `TR` 分组重建 `<table>` HTML + TSV 纯文本写入剪贴板，并 `stopImmediatePropagation`（顺带掐死「无权限」toast）。

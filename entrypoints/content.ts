@@ -13,6 +13,9 @@
 import { defineContentScript } from 'wxt/sandbox';
 import { loadConfig, onConfigChanged, type FeishuConfig } from '../src/utils/storage';
 import { setDebug, log, error } from '../src/utils/logger';
+import { BRIDGE_SOURCE, toBridgedConfig } from '../src/hooks/main-state';
+import { docToMarkdown } from '../src/utils/markdown';
+import { showToast } from '../src/utils/toast';
 import {
   injectStyle,
   removeStyle,
@@ -34,6 +37,17 @@ export default defineContentScript({
     setDebug(config.debug);
     log('Content Script 已加载（ISOLATED world）', config);
 
+    // 桥接配置到 MAIN world（hook 实时读取，事件级开关无需刷新）
+    syncConfigToMainWorld(config);
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      const data = event.data as { source?: string; type?: string } | null;
+      if (data?.source === BRIDGE_SOURCE && data.type === 'REQUEST_CONFIG') {
+        syncConfigToMainWorld(config);
+      }
+    });
+
     // ⚠️ 不立即注入 CSS — 等待 document.head 就绪
     // document_start 时机 head 可能尚未构建完毕
     function safeApplyStyles(): void {
@@ -52,6 +66,7 @@ export default defineContentScript({
       config = newConfig;
       setDebug(config.debug);
       applyAllStyles(config);
+      syncConfigToMainWorld(config);
     });
 
     ctx.onInvalidated(() => {
@@ -80,9 +95,48 @@ export default defineContentScript({
         sendResponse({ success: true });
         return true;
       }
+      if (message.type === 'EXPORT_MARKDOWN') {
+        try {
+          const md = docToMarkdown();
+          if (!md.trim()) {
+            sendResponse({ success: false });
+            return true;
+          }
+          const title =
+            document.title.replace(/[ _-]*飞书云文档.*$/, '').trim() || 'document';
+          const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = title + '.md';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          showToast('Markdown 已导出');
+          sendResponse({ success: true, length: md.length });
+        } catch (e) {
+          error('Markdown 导出失败', e);
+          sendResponse({ success: false });
+        }
+        return true;
+      }
     });
   },
 });
+
+/**
+ * 推送配置到 MAIN world
+ * 失败静默降级 — MAIN world 未就绪时会通过 REQUEST_CONFIG 主动拉取
+ */
+function syncConfigToMainWorld(cfg: FeishuConfig): void {
+  try {
+    window.postMessage(
+      { source: BRIDGE_SOURCE, type: 'CONFIG_SYNC', config: toBridgedConfig(cfg) },
+      window.location.origin,
+    );
+  } catch {
+    // 静默降级
+  }
+}
 
 /**
  * 应用所有 CSS 样式

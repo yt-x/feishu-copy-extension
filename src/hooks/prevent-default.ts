@@ -8,6 +8,8 @@
  * 安装时机：document_start，在飞书 JS 初始化之前 hook。
  */
 
+import { warn } from '../utils/logger';
+
 /** 保存原始 preventDefault 引用（模块加载时立即缓存） */
 let _rawPreventDefault: typeof Event.prototype.preventDefault | null = null;
 let _installed = false;
@@ -61,7 +63,7 @@ export function installPreventDefaultHook(options: {
     _installed = true;
   } catch (e) {
     // hook 失败时静默降级 — 飞书页面正常运行
-    console.warn('[飞书复制助手] preventDefault hook 安装失败', e);
+    warn('preventDefault hook 安装失败', e);
   }
 }
 

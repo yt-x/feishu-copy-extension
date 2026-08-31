@@ -87,9 +87,15 @@ const toggles: ToggleItem[] = [
 
 onMounted(async () => {
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
+    // SW 未就绪/注册失败时 sendMessage 可能永不返回，2s 超时兜底直读 storage
+    const response = await Promise.race([
+      chrome.runtime.sendMessage({ type: 'GET_CONFIG' }),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2000)),
+    ]);
     if (response?.config) {
       config.value = { ...DEFAULT_CONFIG, ...response.config };
+    } else {
+      throw new Error('no response');
     }
   } catch {
     // 降级: 从 storage 直接读取
@@ -101,23 +107,27 @@ onMounted(async () => {
   loading.value = false;
 });
 
-async function toggle(key: keyof FeishuConfig) {
+async function onToggle(key: keyof FeishuConfig, event: Event) {
   if (saving.value) return;
 
   const item = toggles.find((t) => t.key === key);
   if (!item) return;
 
+  // 显式读取 DOM 新值，避免 v-model 与 @change 的监听顺序导致存到切换前的旧值
+  const newValue = (event.target as HTMLInputElement).checked;
+  config.value[key] = newValue;
+
   saving.value = true;
 
   try {
-    // 先保存到 storage
+    // 先保存到 storage（background 会与已有配置 merge）
     await chrome.runtime.sendMessage({
       type: 'SAVE_CONFIG',
-      config: { [key]: config.value[key] },
+      config: { [key]: newValue },
     });
 
-    // 通知当前标签页即时应用
     if (item.hot) {
+      // 通知当前标签页即时应用
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
         chrome.tabs.sendMessage(tab.id, {
@@ -127,6 +137,8 @@ async function toggle(key: keyof FeishuConfig) {
           // content script 可能未加载
         });
       }
+    } else {
+      reloadNeeded.value = true;
     }
   } catch {
     // 降级：直接写 storage
@@ -138,9 +150,26 @@ async function toggle(key: keyof FeishuConfig) {
   saving.value = false;
 }
 
-const needsReload = computed(() => {
-  return toggles.some((t) => !t.hot);
-});
+const reloadNeeded = ref(false);
+const exporting = ref(false);
+const exportResult = ref('');
+
+async function exportMarkdown() {
+  if (exporting.value) return;
+  exporting.value = true;
+  exportResult.value = '';
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error('no tab');
+    const resp = await chrome.tabs.sendMessage(tab.id, { type: 'EXPORT_MARKDOWN' });
+    exportResult.value = resp?.success
+      ? `已导出 ${resp.length} 字符`
+      : '导出失败：未找到文档内容';
+  } catch {
+    exportResult.value = '导出失败：请在飞书文档页面使用';
+  }
+  exporting.value = false;
+}
 
 async function reloadTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -163,10 +192,8 @@ async function resetToDefaults() {
       config: DEFAULT_CONFIG,
     }).catch(() => {});
   }
+  reloadNeeded.value = true;
 }
-
-// 需要引入 computed
-import { computed } from 'vue';
 </script>
 
 <template>
@@ -208,18 +235,27 @@ import { computed } from 'vue';
         <label class="switch">
           <input
             type="checkbox"
-            v-model="config[item.key]"
-            @change="toggle(item.key)"
+            :checked="config[item.key]"
+            @change="onToggle(item.key, $event)"
           />
           <span class="slider"></span>
         </label>
       </div>
     </div>
 
+    <!-- Markdown 导出 -->
+    <div v-if="!loading" class="export-section">
+      <button class="btn-export" @click="exportMarkdown" :disabled="exporting">
+        {{ exporting ? '导出中...' : '导出为 Markdown' }}
+      </button>
+      <div v-if="exportResult" class="export-result">{{ exportResult }}</div>
+      <div class="export-hint">选中内容后按 Ctrl+Shift+X 可复制为 Markdown</div>
+    </div>
+
     <!-- 底部操作 -->
-    <footer v-if="!loading" class="footer" v-show="needsReload">
+    <footer v-if="!loading && reloadNeeded" class="footer">
       <button class="btn-reload" @click="reloadTab">
-        🔄 刷新页面试用新设置
+        🔄 刷新页面生效新设置
       </button>
     </footer>
   </div>
@@ -378,6 +414,45 @@ import { computed } from 'vue';
 .footer {
   padding: 10px 16px 16px;
   border-top: 1px solid #f0f0f0;
+}
+
+.export-section {
+  padding: 10px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.btn-export {
+  width: 100%;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: #3370ff;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-export:hover:not(:disabled) {
+  background: #295dff;
+}
+.btn-export:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.export-result {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #646a73;
+  text-align: center;
+}
+
+.export-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #8f959e;
+  text-align: center;
 }
 
 .btn-reload {
