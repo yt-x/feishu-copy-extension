@@ -223,8 +223,12 @@ async function collectFullDocumentMarkdown(): Promise<string> {
     new Promise((resolve) => setTimeout(resolve, ms));
 
   const blockKey = (el: Element): string => {
+    // data-record-id 是飞书文档块的稳定 UUID，优先使用；
+    // data-block-id 实测为数字序号（可能随虚拟滚动复用），仅作次选
+    const recordId = el.getAttribute('data-record-id');
+    if (recordId) return recordId;
     const id = el.getAttribute('data-block-id');
-    if (id) return id;
+    if (id) return 'bid:' + id;
     const text = (el.textContent || '').trim();
     return (el.getAttribute('data-block-type') || el.className) + ':' + text.length + ':' + text.slice(0, 48);
   };
