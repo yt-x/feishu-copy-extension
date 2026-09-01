@@ -8,6 +8,7 @@ interface FeishuConfig {
   removeWatermark: boolean;
   bypassDrag: boolean;
   keepTableFormat: boolean;
+  embedImages: boolean;
   debug: boolean;
 }
 
@@ -18,6 +19,7 @@ const DEFAULT_CONFIG: FeishuConfig = {
   removeWatermark: true,
   bypassDrag: false,
   keepTableFormat: true,
+  embedImages: true,
   debug: false,
 };
 
@@ -73,6 +75,13 @@ const toggles: ToggleItem[] = [
     key: 'bypassDrag',
     label: '解除拖拽限制',
     desc: '允许拖拽图片和文本',
+    hot: true,
+    group: '增强',
+  },
+  {
+    key: 'embedImages',
+    label: '导出包含图片',
+    desc: '开启：下载 zip（md + assets 图片文件夹）；关闭：仅 .md 文本',
     hot: true,
     group: '增强',
   },

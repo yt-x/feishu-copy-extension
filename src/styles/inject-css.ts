@@ -33,16 +33,6 @@ export function removeStyle(id: string): void {
 }
 
 /**
- * 启用/禁用某个样式
- */
-export function toggleStyle(id: string, enabled: boolean): void {
-  const el = styleElements.get(id) || document.getElementById(`__feishu_copy_${id}__`);
-  if (el instanceof HTMLStyleElement) {
-    el.disabled = !enabled;
-  }
-}
-
-/**
  * 覆盖 user-select，强制文本可选
  */
 export const USER_SELECT_CSS = `

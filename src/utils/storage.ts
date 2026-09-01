@@ -21,6 +21,8 @@ export interface FeishuConfig {
   bypassDrag: boolean;
   /** 保留表格格式 (不拦截飞书原生copy handler) */
   keepTableFormat: boolean;
+  /** 导出 Markdown 时内嵌图片为 base64 */
+  embedImages: boolean;
   /** 调试日志 */
   debug: boolean;
 }
@@ -32,6 +34,7 @@ export const DEFAULT_CONFIG: FeishuConfig = {
   removeWatermark: true,
   bypassDrag: false,
   keepTableFormat: true,
+  embedImages: true,
   debug: false,
 };
 
@@ -42,13 +45,6 @@ export async function loadConfig(): Promise<FeishuConfig> {
   const result = await chrome.storage.sync.get(STORAGE_KEYS.CONFIG);
   const saved = result[STORAGE_KEYS.CONFIG] as Partial<FeishuConfig> | undefined;
   return { ...DEFAULT_CONFIG, ...saved };
-}
-
-/**
- * 保存配置
- */
-export async function saveConfig(config: Partial<FeishuConfig>): Promise<void> {
-  await chrome.storage.sync.set({ [STORAGE_KEYS.CONFIG]: config });
 }
 
 /**

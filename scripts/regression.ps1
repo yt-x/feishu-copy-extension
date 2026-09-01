@@ -65,6 +65,19 @@ Check "R4.1 contextmenu hook active by default" (-not $r4.before)
 Check "R4.2 bridge-off disables instantly" $r4.off
 Check "R4.3 bridge-on restores instantly" (-not $r4.on)
 
+# R5: external links open in new tab (click intercepted), internal untouched
+# (listener installs after async config load; retry to absorb page-settle timing)
+$r5Script = "(()=>{const test=(href)=>{const a=document.createElement('a');a.href=href;a.textContent='x';document.body.appendChild(a);const ev=new MouseEvent('click',{cancelable:true,bubbles:true});a.dispatchEvent(ev);a.remove();return ev.defaultPrevented};return JSON.stringify({external:test('https://example.com/page'),internal:test('https://waytoagi.feishu.cn/wiki/abc'),anchor:test('#section')})})()"
+$r5 = $null
+for ($i = 0; $i -lt 3; $i++) {
+  $r5 = Eval-Page $r5Script | ConvertFrom-Json
+  if ($r5.external -eq $true) { break }
+  opencli browser $Session wait time 2 | Out-Null
+}
+Check "R5.1 external link intercepted (new tab)" $r5.external
+Check "R5.2 internal link untouched" (-not $r5.internal)
+Check "R5.3 anchor link untouched" (-not $r5.anchor)
+
 Write-Host ""
 if ($script:failed -eq 0) {
   Write-Host "== ALL PASSED ==" -ForegroundColor Green

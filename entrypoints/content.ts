@@ -14,7 +14,8 @@ import { defineContentScript } from 'wxt/sandbox';
 import { loadConfig, onConfigChanged, type FeishuConfig } from '../src/utils/storage';
 import { setDebug, log, error } from '../src/utils/logger';
 import { BRIDGE_SOURCE, toBridgedConfig } from '../src/hooks/main-state';
-import { findDocContainer, collectVisibleContentBlocks, blocksToMarkdown } from '../src/utils/markdown';
+import { findDocContainer, collectVisibleContentBlocks, blocksToMarkdown, collectImageAssets } from '../src/utils/markdown';
+import JSZip from 'jszip';
 import { showToast } from '../src/utils/toast';
 import {
   injectStyle,
@@ -69,6 +70,8 @@ export default defineContentScript({
       syncConfigToMainWorld(config);
     });
 
+    installExternalLinkHandler();
+
     ctx.onInvalidated(() => {
       removeListener();
       removeStyle('user-select');
@@ -105,15 +108,28 @@ export default defineContentScript({
             }
             const title =
               document.title.replace(/[ _-]*飞书云文档.*$/, '').trim() || 'document';
-            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = title + '.md';
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-            showToast('Markdown 已导出');
-            sendResponse({ success: true, length: md.length });
+
+            if (config.embedImages) {
+              // 打包 zip：文档名.md + assets/ 图片文件夹，md 内用相对路径引用
+              const { markdown, assets } = await collectImageAssets(md);
+              const zip = new JSZip();
+              zip.file(`${title}.md`, markdown);
+              const folder = zip.folder('assets');
+              for (const asset of assets) {
+                folder?.file(asset.filename, asset.blob);
+              }
+              const blob = await zip.generateAsync({ type: 'blob' });
+              downloadBlob(blob, `${title}.zip`);
+              showToast(`已导出 zip（含 ${assets.length} 张图片）`);
+              sendResponse({ success: true, length: markdown.length });
+            } else {
+              downloadBlob(
+                new Blob([md], { type: 'text/markdown;charset=utf-8' }),
+                `${title}.md`,
+              );
+              showToast('Markdown 已导出');
+              sendResponse({ success: true, length: md.length });
+            }
           } catch (e) {
             error('Markdown 导出失败', e);
             sendResponse({ success: false });
@@ -138,6 +154,50 @@ function syncConfigToMainWorld(cfg: FeishuConfig): void {
   } catch {
     // 静默降级
   }
+}
+
+/**
+ * 外链新标签打开
+ *
+ * 飞书域外链接默认经过飞书安全跳转页。捕获阶段拦截点击，
+ * 域外 http(s) 链接直接 window.open 新标签打开，域内链接不动。
+ */
+function installExternalLinkHandler(): void {
+  const INTERNAL = /(^|\.)(feishu\.cn|larksuite\.com|larkoffice\.com)$/;
+
+  document.addEventListener(
+    'click',
+    (e) => {
+      const target = e.target as Element | null;
+      const anchor = target?.closest?.('a[href]');
+      if (!anchor) return;
+
+      const href = anchor.getAttribute('href') || '';
+      if (!/^https?:\/\//.test(href)) return;
+
+      let hostname: string;
+      try {
+        hostname = new URL(href).hostname;
+      } catch {
+        return;
+      }
+      if (INTERNAL.test(hostname)) return;
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.open(href, '_blank', 'noopener');
+    },
+    true,
+  );
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**

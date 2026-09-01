@@ -43,29 +43,31 @@
 - [x] **P1-1 图片复制到剪贴板**：✅ 2026-08-31 实测两条路径均通过 —— contextmenu 解禁后浏览器原生菜单的「复制图片」对正文图片和预览灯箱图片都有效（含 blob: src），「图片另存为」同理可用。无需自实现 ClipboardItem 链路；原生菜单失效的边角场景出现时再补
 - [x] **P1-2 DOM→Markdown 转换器**：`src/utils/markdown.ts` ✅ 2026-08-31
 - [x] **P1-3 整篇导出 Markdown**：Popup 按钮 → 虚拟滚动逐屏收集（克隆快照防回收串位）→ 下载 .md ✅ 2026-08-31 实测文本导出通过
+- [x] **P1-3b 导出图片 base64 内嵌**：`embedImagesAsBase64()`，开关默认开、失败留原始 URL ✅ 2026-08-31
 - [x] **P1-4 选中复制为 Markdown**：❌ 放弃（2026-08-31）— Ctrl+Shift+X 链路在飞书页面不可靠，代码已移除；`selectionToMarkdown()` 保留在 markdown.ts 中供未来重启
 - [x] **P1-5 恢复原生保存**：keydown 缴械放行 Ctrl+S / Ctrl+P ✅ 2026-08-31（注：保存的 HTML/打印件中图片因加密不可见，见 P3 图片本地化）
 
-### P1 — 原体验增强（目标口径外，保留）
+### P1 — 原体验增强
 
-- [ ] 图片悬停下载（P1-1 完成后可能冗余，届时评估）
-- [ ] 外链新标签打开 — 飞书域外链接自动 target="_blank"
-- [ ] Popup 诊断面板 — 显示 hook 状态、CSS 注入状态、权限 API 拦截状态
+- [x] 图片悬停下载 — 原生右键「图片另存为」已覆盖，不做 ✅ 2026-08-31
+- [x] 外链新标签打开 — 域外链接捕获阶段拦截，绕过飞书安全跳转页 ✅ 2026-08-31
+- [ ] ~~Popup 诊断面板~~ — 回归脚本已覆盖其价值，不做（2026-08-31 决策）
 
-### P2 — 扩展能力
+### P2 — 工程健康（2026-08-31 路线图定案）
 
-- [ ] Firefox 兼容性测试（npm run build:firefox）
-- [ ] Chrome Web Store 上架准备（截图、描述、隐私政策）
-- [ ] 多语言支持（中/英），利用 WXT i18n 模块
-- [ ] 死代码清理（可选）：`saveConfig`、`toggleStyle`、`FEISHU_MATCHES`、RELOAD_TAB 消息分支、`scripting` 权限、空目录 public/icons/、src/features/
+- [x] markdown.ts 单元测试（vitest + jsdom，14 用例）✅ 2026-08-31
+- [x] 死代码清理（saveConfig / toggleStyle / RELOAD_TAB / scripting 权限）✅ 2026-08-31
+- [ ] ~~Firefox 兼容性 / 商店上架 / 多语言~~ — 定位自用+公开 Release，不做（2026-08-31 决策）
 
 ### P3 — 未来
 
-- [ ] **图片本地化保存方案**：飞书图片加密 + URL 鉴权（blob:/drive-stream 需会话），导出的 HTML/PDF/Markdown 中图片不可直接访问。需实现：解析文档图片 → 逐个 fetch 解密/blob 数据 → 转 base64 内嵌或本地文件目录 → 按原格式与位置重构进保存物。工作量大，2026-08-31 决策暂缓
+- [ ] **图片本地化保存方案（HTML/PDF）**：飞书图片加密 + URL 鉴权，保存物中图片不可直接访问。Markdown 导出已用 base64 内嵌解决（见 P1 图片内嵌）；HTML/PDF 重构工作量大，暂缓
 - [ ] 配置导入/导出 JSON
 - [ ] 自定义站点白名单
-- [ ] 页面性能影响监控
-- [ ] 核心 hook 单元测试
+
+## 维护模式
+
+2026-08-31 路线图定案后，项目进入维护模式：已完成项见上，活跃待办仅「未来」清单。改动流程：改代码 → `npm run typecheck && npm run test && npm run build` → 刷新扩展 → `powershell -File scripts/regression.ps1` → TEST.md 人工项。
 
 ## 已完成
 

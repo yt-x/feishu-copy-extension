@@ -44,16 +44,9 @@ export default defineBackground({
             return chrome.storage.sync.set({ feishu_copy_config: merged });
           })
           .then(() => {
-            sendResponse({ success: true });
-          });
-        return true;
-      }
-
-      if (message.type === 'RELOAD_TAB') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-          if (tab?.id) chrome.tabs.reload(tab.id);
+          sendResponse({ success: true });
         });
-        return false;
+        return true;
       }
     });
   },

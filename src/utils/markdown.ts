@@ -232,3 +232,61 @@ export function blocksToMarkdown(blocks: Element[]): string {
   }
   return parts.join('\n\n');
 }
+
+const IMAGE_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/svg+xml': '.svg',
+};
+
+export interface ImageAsset {
+  /** 原始图片 URL */
+  url: string;
+  /** zip 内文件名（assets/ 下） */
+  filename: string;
+  blob: Blob;
+}
+
+/**
+ * 抓取 Markdown 中的图片为本地资源，URL 重写为 assets/ 相对路径
+ *
+ * 飞书图片为 blob: 或需登录态的 drive-stream URL，离开页面会话即失效。
+ * 页面上下文内 fetch 携带会话凭证可拿到图片数据。
+ * 单张失败时保留原始 URL（降级），不阻断整体导出。
+ */
+export async function collectImageAssets(
+  markdown: string,
+): Promise<{ markdown: string; assets: ImageAsset[] }> {
+  const pattern = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+  const urls = Array.from(
+    new Set(Array.from(markdown.matchAll(pattern)).map((m) => m[1])),
+  );
+  if (urls.length === 0) return { markdown, assets: [] };
+
+  const assets: ImageAsset[] = [];
+  const urlToPath = new Map<string, string>();
+
+  await Promise.all(
+    urls.map(async (url, index) => {
+      try {
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        if (!blob.type.startsWith('image/')) return;
+        const ext = IMAGE_EXT[blob.type] || '.png';
+        const filename = `img-${String(index + 1).padStart(3, '0')}${ext}`;
+        assets.push({ url, filename, blob });
+        urlToPath.set(url, `assets/${filename}`);
+      } catch {
+        // 失败保留原始 URL
+      }
+    }),
+  );
+
+  const rewritten = markdown.replace(pattern, (match, url: string) =>
+    urlToPath.has(url) ? `![](${urlToPath.get(url)})` : match,
+  );
+  return { markdown: rewritten, assets };
+}
