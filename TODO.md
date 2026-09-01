@@ -69,6 +69,8 @@
 
 2026-08-31 路线图定案后，项目进入维护模式：已完成项见上，活跃待办仅「未来」清单。改动流程：改代码 → `npm run typecheck && npm run test && npm run build` → 刷新扩展 → `powershell -File scripts/regression.ps1` → TEST.md 人工项。
 
+> **2026-08-31 归档**：目标口径全部验收完成（含调试开关、Ctrl+S/Ctrl+P 人工实测），check 通过，代码与文档已推送至 GitHub。
+
 ## 已完成
 
 - [x] 项目脚手架（WXT + Vue 3 + TS）
